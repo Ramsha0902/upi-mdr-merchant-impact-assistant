@@ -279,20 +279,16 @@ if st.button("Ask"):
             st.subheader("Answer")
             st.markdown(answer)
 
-            st.subheader("Sources used")
-            st.dataframe(
-                evidence_df[
-                    [
-                        "source_label",
-                        "document_name",
-                        "page_number",
-                        "chunk_number",
-                        "retrieval_role"
-                    ]
-                ],
-                hide_index=True,
-                use_container_width=True
-            )
+                        st.subheader("Sources used")
+
+            for _, row in evidence_df.iterrows():
+                st.markdown(
+                    f"- **[{row['source_label']}]** "
+                    f"{row['document_name']} — "
+                    f"page {row['page_number']}, "
+                    f"chunk {row['chunk_number']} "
+                    f"({row['retrieval_role']})"
+                )
 
             with st.expander("View retrieved official passages"):
                 for _, row in evidence_df.iterrows():
