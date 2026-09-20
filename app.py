@@ -1,7 +1,7 @@
-
 import pickle
 import re
 from decimal import Decimal, ROUND_HALF_UP
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -20,17 +20,19 @@ st.set_page_config(
 )
 
 st.title("UPI MDR Merchant Impact Assistant")
+
 st.caption(
-    "An educational, source-grounded assistant built from official "
-    "Department of Financial Services and Ministry of Finance documents."
+    "An educational, source-grounded assistant built from selected "
+    "official Department of Financial Services and Ministry of Finance documents."
 )
 
 st.warning(
-    "Educational prototype only. This is not legal, tax, or financial advice. "
-    "Review the official source before making a payment or compliance decision."
+    "Educational prototype only. This is not legal, tax, financial, "
+    "or compliance advice. Review the official source before making a decision."
 )
 
 st.sidebar.header("About this demo")
+
 st.sidebar.write(
     "Ask questions about the selected UPI MDR framework and calculate "
     "merchant-side MDR for regular P2M transactions."
@@ -47,22 +49,32 @@ st.sidebar.markdown(
 
 
 # ------------------------------------------------------------
-# Load data and AI models once
+# App settings
 # ------------------------------------------------------------
-DATA_DIR = "data"
+APP_DIR = Path(__file__).resolve().parent
+DATA_DIR = APP_DIR / "data"
 GEMINI_MODEL = "gemini-2.5-flash"
 
 
+# ------------------------------------------------------------
+# Load search data and models
+# ------------------------------------------------------------
 @st.cache_resource
 def load_search_assets():
-    chunks_df = pd.read_csv(f"{DATA_DIR}/upi_mdr_chunks.csv")
-    embeddings = np.load(f"{DATA_DIR}/upi_mdr_dense_embeddings.npy")
+    chunks_df = pd.read_csv(DATA_DIR / "upi_mdr_chunks.csv")
 
-    with open(f"{DATA_DIR}/upi_mdr_bm25.pkl", "rb") as file:
+    embeddings = np.load(
+        DATA_DIR / "upi_mdr_dense_embeddings.npy"
+    )
+
+    with open(DATA_DIR / "upi_mdr_bm25.pkl", "rb") as file:
         bm25_index = pickle.load(file)
 
     dense_model = SentenceTransformer("all-MiniLM-L6-v2")
-    reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+
+    reranker = CrossEncoder(
+        "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    )
 
     return chunks_df, embeddings, bm25_index, dense_model, reranker
 
@@ -73,15 +85,27 @@ def normalize_scores(scores):
     if scores.max() == scores.min():
         return np.zeros_like(scores)
 
-    return (scores - scores.min()) / (scores.max() - scores.min())
+    return (
+        (scores - scores.min())
+        / (scores.max() - scores.min())
+    )
 
 
 def tokenize(text):
     return re.findall(r"[a-z0-9]+", text.lower())
 
 
+# ------------------------------------------------------------
+# Retrieve source evidence
+# ------------------------------------------------------------
 def retrieve_evidence_chunks(question, primary_k=3):
-    chunks_df, embeddings, bm25_index, dense_model, reranker = load_search_assets()
+    (
+        chunks_df,
+        embeddings,
+        bm25_index,
+        dense_model,
+        reranker
+    ) = load_search_assets()
 
     question_embedding = dense_model.encode(
         [question],
@@ -89,7 +113,10 @@ def retrieve_evidence_chunks(question, primary_k=3):
     )[0]
 
     dense_scores = embeddings @ question_embedding
-    bm25_scores = bm25_index.get_scores(tokenize(question))
+
+    bm25_scores = bm25_index.get_scores(
+        tokenize(question)
+    )
 
     hybrid_scores = (
         0.55 * normalize_scores(dense_scores)
@@ -97,14 +124,19 @@ def retrieve_evidence_chunks(question, primary_k=3):
     )
 
     candidate_k = min(24, len(chunks_df))
-    candidate_indices = np.argsort(hybrid_scores)[::-1][:candidate_k]
+
+    candidate_indices = np.argsort(
+        hybrid_scores
+    )[::-1][:candidate_k]
 
     candidate_pairs = [
         (question, chunks_df.iloc[index]["chunk_text"])
         for index in candidate_indices
     ]
 
-    reranker_scores = reranker.predict(candidate_pairs)
+    reranker_scores = reranker.predict(
+        candidate_pairs
+    )
 
     reranked_indices = candidate_indices[
         np.argsort(reranker_scores)[::-1]
@@ -120,22 +152,28 @@ def retrieve_evidence_chunks(question, primary_k=3):
 
         row = chunks_df.iloc[index]
 
-        same_page = chunks_df[
+        same_page_neighbours = chunks_df[
             (chunks_df["document_name"] == row["document_name"])
             & (chunks_df["page_number"] == row["page_number"])
             & (
                 chunks_df["chunk_number"].isin(
-                    [row["chunk_number"] - 1, row["chunk_number"] + 1]
+                    [
+                        row["chunk_number"] - 1,
+                        row["chunk_number"] + 1
+                    ]
                 )
             )
         ]
 
-        for neighbour_index in same_page.index:
+        for neighbour_index in same_page_neighbours.index:
             if neighbour_index not in selected_indices:
                 selected_indices.append(neighbour_index)
-                retrieval_roles[neighbour_index] = "adjacent_context"
+                retrieval_roles[
+                    neighbour_index
+                ] = "adjacent_context"
 
     evidence_df = chunks_df.loc[selected_indices].copy()
+
     evidence_df["retrieval_role"] = [
         retrieval_roles[index]
         for index in evidence_df.index
@@ -168,8 +206,13 @@ Passage:
     return "\n\n".join(source_blocks)
 
 
+# ------------------------------------------------------------
+# Generate answer from official retrieved passages only
+# ------------------------------------------------------------
 def generate_answer(question, evidence_df, client):
-    source_passages = format_evidence_for_prompt(evidence_df)
+    source_passages = format_evidence_for_prompt(
+        evidence_df
+    )
 
     prompt = f"""
 You are a source-grounded educational assistant for the UPI MDR framework.
@@ -211,11 +254,16 @@ OFFICIAL SOURCE PASSAGES:
     return (response.text or "").strip()
 
 
+# ------------------------------------------------------------
+# Deterministic regular-P2M MDR calculator
+# ------------------------------------------------------------
 def calculate_regular_p2m_mdr(transaction_amount):
     amount = Decimal(str(transaction_amount))
 
     if amount <= 0:
-        raise ValueError("Transaction amount must be greater than ₹0.")
+        raise ValueError(
+            "Transaction amount must be greater than ₹0."
+        )
 
     if amount <= Decimal("2000"):
         mdr = Decimal("0.00")
@@ -226,7 +274,9 @@ def calculate_regular_p2m_mdr(transaction_amount):
 
         if amount >= Decimal("75000"):
             mdr = min(mdr, Decimal("300"))
-            rule_applied = "0.4% MDR applies, capped at ₹300."
+            rule_applied = (
+                "0.4% MDR applies, capped at ₹300."
+            )
         else:
             rule_applied = "0.4% MDR applies."
 
@@ -242,7 +292,7 @@ def calculate_regular_p2m_mdr(transaction_amount):
 
 
 # ------------------------------------------------------------
-# Question-answering section
+# Question-answering interface
 # ------------------------------------------------------------
 st.subheader("Ask a question")
 
@@ -264,12 +314,17 @@ if st.button("Ask"):
 
     else:
         try:
-            with st.spinner("Searching official documents and preparing an answer..."):
+            with st.spinner(
+                "Searching official documents and preparing an answer..."
+            ):
                 client = genai.Client(
                     api_key=st.secrets["GEMINI_API_KEY"]
                 )
 
-                evidence_df = retrieve_evidence_chunks(question)
+                evidence_df = retrieve_evidence_chunks(
+                    question
+                )
+
                 answer = generate_answer(
                     question,
                     evidence_df,
@@ -279,7 +334,7 @@ if st.button("Ask"):
             st.subheader("Answer")
             st.markdown(answer)
 
-                        st.subheader("Sources used")
+            st.subheader("Sources used")
 
             for _, row in evidence_df.iterrows():
                 st.markdown(
@@ -290,7 +345,9 @@ if st.button("Ask"):
                     f"({row['retrieval_role']})"
                 )
 
-            with st.expander("View retrieved official passages"):
+            with st.expander(
+                "View retrieved official passages"
+            ):
                 for _, row in evidence_df.iterrows():
                     st.markdown(
                         f"**[{row['source_label']}] "
@@ -308,10 +365,12 @@ if st.button("Ask"):
 
 
 # ------------------------------------------------------------
-# Deterministic MDR calculator
+# Calculator interface
 # ------------------------------------------------------------
 st.divider()
+
 st.subheader("Regular merchant MDR calculator")
+
 st.caption(
     "For regular UPI person-to-merchant transactions only. "
     "The customer charge remains ₹0."
@@ -344,4 +403,6 @@ if amount > 0:
         f"₹{result['merchant_mdr']:,.2f}"
     )
 
-    st.info(f"Rule applied: {result['rule_applied']}")
+    st.info(
+        f"Rule applied: {result['rule_applied']}"
+    )
