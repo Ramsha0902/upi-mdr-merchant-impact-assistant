@@ -1,0 +1,6 @@
+streamlit
+pandas
+numpy
+sentence-transformers
+rank-bm25
+google-genai
