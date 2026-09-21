@@ -11,7 +11,7 @@ from sentence_transformers import CrossEncoder, SentenceTransformer
 
 
 # ------------------------------------------------------------
-# Page setup
+# Page setup and styling
 # ------------------------------------------------------------
 st.set_page_config(
     page_title="UPI MDR Merchant Impact Assistant",
@@ -19,23 +19,97 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("UPI MDR Merchant Impact Assistant")
+st.markdown(
+    """
+    <style>
+        .stApp {
+            background: #f8fafc;
+        }
 
-st.caption(
-    "An educational, source-grounded assistant built from selected "
-    "official Department of Financial Services and Ministry of Finance documents."
+        .hero {
+            background: linear-gradient(135deg, #0f766e, #0f4c5c);
+            color: white;
+            padding: 2rem 2.2rem;
+            border-radius: 18px;
+            margin-bottom: 1.4rem;
+        }
+
+        .hero h1 {
+            margin: 0;
+            font-size: 2.25rem;
+        }
+
+        .hero p {
+            margin: 0.6rem 0 0 0;
+            font-size: 1.05rem;
+            opacity: 0.92;
+        }
+
+        .section-heading {
+            color: #0f4c5c;
+            font-size: 1.35rem;
+            font-weight: 700;
+            margin-top: 1.5rem;
+            margin-bottom: 0.6rem;
+        }
+
+        .source-card {
+            background: white;
+            border-left: 4px solid #14b8a6;
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            margin-bottom: 0.55rem;
+            color: #334155;
+        }
+
+        div[data-testid="stMetric"] {
+            background: white;
+            border: 1px solid #dbeafe;
+            border-radius: 12px;
+            padding: 0.8rem;
+        }
+
+        div.stButton > button {
+            background-color: #0f766e;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            padding: 0.55rem 1.2rem;
+        }
+
+        div.stButton > button:hover {
+            background-color: #115e59;
+            color: white;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+st.markdown(
+    """
+    <div class="hero">
+        <h1>💳 UPI MDR Merchant Impact Assistant</h1>
+        <p>
+            Ask questions about the selected official UPI MDR documents
+            or calculate MDR for a regular merchant transaction.
+        </p>
+    </div>
+    """,
+    unsafe_allow_html=True
 )
 
 st.warning(
-    "Educational prototype only. This is not legal, tax, financial, "
+    "⚠️ Educational prototype only. This is not legal, tax, financial, "
     "or compliance advice. Review the official source before making a decision."
 )
 
-st.sidebar.header("About this demo")
+st.sidebar.header("ℹ️ About this demo")
 
 st.sidebar.write(
-    "Ask questions about the selected UPI MDR framework and calculate "
-    "merchant-side MDR for regular P2M transactions."
+    "This assistant searches selected official UPI MDR documents, "
+    "shows the supporting source pages, and includes a regular-P2M MDR calculator."
 )
 
 st.sidebar.markdown(
@@ -57,7 +131,7 @@ GEMINI_MODEL = "gemini-2.5-flash"
 
 
 # ------------------------------------------------------------
-# Load search data and models
+# Load data and models
 # ------------------------------------------------------------
 @st.cache_resource
 def load_search_assets():
@@ -95,8 +169,18 @@ def tokenize(text):
     return re.findall(r"[a-z0-9]+", text.lower())
 
 
+def readable_document_name(document_name):
+    if document_name.startswith("FAQs---"):
+        return "Department of Financial Services FAQ"
+
+    if document_name.startswith("Press Release"):
+        return "Ministry of Finance / PIB release"
+
+    return document_name
+
+
 # ------------------------------------------------------------
-# Retrieve source evidence
+# Retrieve official source evidence
 # ------------------------------------------------------------
 def retrieve_evidence_chunks(question, primary_k=3):
     (
@@ -182,7 +266,7 @@ def retrieve_evidence_chunks(question, primary_k=3):
     evidence_df = evidence_df.reset_index(drop=True)
 
     evidence_df["source_label"] = [
-        f"S{number}"
+        f"Source {number}"
         for number in range(1, len(evidence_df) + 1)
     ]
 
@@ -195,10 +279,8 @@ def format_evidence_for_prompt(evidence_df):
     for _, row in evidence_df.iterrows():
         source_blocks.append(
             f"""[{row["source_label"]}]
-Document: {row["document_name"]}
+Document: {readable_document_name(row["document_name"])}
 Page: {row["page_number"]}
-Chunk: {row["chunk_number"]}
-Role: {row["retrieval_role"]}
 Passage:
 {row["chunk_text"]}"""
         )
@@ -207,7 +289,7 @@ Passage:
 
 
 # ------------------------------------------------------------
-# Generate answer from official retrieved passages only
+# Generate answer only from retrieved source passages
 # ------------------------------------------------------------
 def generate_answer(question, evidence_df, client):
     source_passages = format_evidence_for_prompt(
@@ -231,8 +313,8 @@ Write in clear, plain language.
 Citation rules:
 - Cite every important factual statement.
 - Use one source label per pair of brackets.
-- Correct: [S1] [S2]
-- Incorrect: [S1, S2], [S1/S2], or [S1 and S2].
+- Correct: [Source 1] [Source 2]
+- Incorrect: [Source 1, Source 2].
 - Use only labels that appear in the source passages below.
 
 End with this sentence:
@@ -294,16 +376,19 @@ def calculate_regular_p2m_mdr(transaction_amount):
 # ------------------------------------------------------------
 # Question-answering interface
 # ------------------------------------------------------------
-st.subheader("Ask a question")
+st.markdown(
+    '<div class="section-heading">💬 Ask a question</div>',
+    unsafe_allow_html=True
+)
 
 question = st.text_area(
-    "Ask about the selected UPI MDR documents",
+    "Ask about the selected official UPI MDR documents",
     placeholder=(
         "Example: Do UPI customers have to pay MDR charges?"
     )
 )
 
-if st.button("Ask"):
+if st.button("🔎 Find answer"):
     if not question.strip():
         st.info("Please enter a question first.")
 
@@ -331,31 +416,10 @@ if st.button("Ask"):
                     client
                 )
 
-            st.subheader("Answer")
-            st.markdown(answer)
-
-            st.subheader("Sources used")
-
-            for _, row in evidence_df.iterrows():
-                st.markdown(
-                    f"- **[{row['source_label']}]** "
-                    f"{row['document_name']} — "
-                    f"page {row['page_number']}, "
-                    f"chunk {row['chunk_number']} "
-                    f"({row['retrieval_role']})"
-                )
-
-            with st.expander(
-                "View retrieved official passages"
-            ):
-                for _, row in evidence_df.iterrows():
-                    st.markdown(
-                        f"**[{row['source_label']}] "
-                        f"{row['document_name']} — "
-                        f"page {row['page_number']}, "
-                        f"chunk {row['chunk_number']}**"
-                    )
-                    st.write(row["chunk_text"])
+                st.session_state["qa_result"] = {
+                    "answer": answer,
+                    "evidence": evidence_df
+                }
 
         except Exception:
             st.error(
@@ -364,12 +428,65 @@ if st.button("Ask"):
             )
 
 
+if "qa_result" in st.session_state:
+    answer = st.session_state["qa_result"]["answer"]
+    evidence_df = st.session_state["qa_result"]["evidence"]
+
+    st.markdown(
+        '<div class="section-heading">✨ Answer</div>',
+        unsafe_allow_html=True
+    )
+
+    st.markdown(answer)
+
+    st.markdown(
+        '<div class="section-heading">📚 Sources used</div>',
+        unsafe_allow_html=True
+    )
+
+    st.caption(
+        "Source labels in the answer, such as [Source 1], "
+        "refer to the official document and page listed below."
+    )
+
+    for _, row in evidence_df.iterrows():
+        document = readable_document_name(
+            row["document_name"]
+        )
+
+        st.markdown(
+            f"""
+            <div class="source-card">
+                <strong>{row["source_label"]}</strong><br>
+                {document} · <strong>Page {row["page_number"]}</strong>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    with st.expander("📖 Read the retrieved official passages"):
+        for _, row in evidence_df.iterrows():
+            document = readable_document_name(
+                row["document_name"]
+            )
+
+            st.markdown(
+                f"**{row['source_label']} — {document}, "
+                f"page {row['page_number']}**"
+            )
+
+            st.write(row["chunk_text"])
+
+
 # ------------------------------------------------------------
-# Calculator interface
+# MDR calculator interface
 # ------------------------------------------------------------
 st.divider()
 
-st.subheader("Regular merchant MDR calculator")
+st.markdown(
+    '<div class="section-heading">🧮 Regular merchant MDR calculator</div>',
+    unsafe_allow_html=True
+)
 
 st.caption(
     "For regular UPI person-to-merchant transactions only. "
@@ -404,5 +521,5 @@ if amount > 0:
     )
 
     st.info(
-        f"Rule applied: {result['rule_applied']}"
+        f"✅ Rule applied: {result['rule_applied']}"
     )
